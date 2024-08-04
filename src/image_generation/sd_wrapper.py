@@ -1,7 +1,10 @@
 import sys
 import os
+import time
 import asyncio
 import torch
+from PIL import Image
+from pathlib import Path
 from typing import Optional
 from src.utils.config import load_config
 from src.utils.logging_config import logger
@@ -70,7 +73,11 @@ async def generate_image(
         result = await loop.run_in_executor(None, _generate_image_sync,
                                             positive_prompt, negative_prompt, width, height,
                                             reference_image_path, reference_weight, model_style, seed)
+        logger.info("Image generation completed successfully")
         return result
+    except FileNotFoundError as e:
+        logger.error(f"Reference image not found: {str(e)}")
+        raise ImageGenerationError(f"Reference image not found: {str(e)}")
     except Exception as e:
         logger.error(f"Error during image generation: {str(e)}", exc_info=True)
         raise ImageGenerationError(f"Failed to generate image: {str(e)}")
@@ -91,6 +98,29 @@ def _generate_image_sync(
         model = load_model(model_style)
 
         # Load reference image
+        logger.info(f"Attempting to load reference image from: {reference_image_path}")
+
+        if not os.path.exists(reference_image_path):
+            raise FileNotFoundError(f"Reference image file does not exist: {reference_image_path}")
+
+        # Verify the image again before loading
+        try:
+            with Image.open(reference_image_path) as img:
+                img.verify()
+            logger.info(f"Reference image verified successfully: {reference_image_path}")
+        except Exception as e:
+            logger.error(f"Failed to verify reference image: {str(e)}")
+            # Try to log some information about the file
+            try:
+                file_size = os.path.getsize(reference_image_path)
+                logger.info(f"File size: {file_size} bytes")
+                with open(reference_image_path, 'rb') as f:
+                    first_bytes = f.read(100)
+                logger.info(f"First 100 bytes of the file: {first_bytes}")
+            except Exception as debug_e:
+                logger.error(f"Error while debugging file: {str(debug_e)}")
+            raise FileNotFoundError(f"Reference image file is corrupted: {reference_image_path}")
+
         loadimagefrompath = NODE_CLASS_MAPPINGS["LoadImageFromPath"]()
         loadimagefrompath_result = loadimagefrompath.load_image(image=reference_image_path)
 
